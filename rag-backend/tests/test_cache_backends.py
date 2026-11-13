@@ -56,7 +56,7 @@ def use_redis(monkeypatch, client, ttl=0):
 
 
 def test_default_backend_is_disk(tmp_path, monkeypatch):
-    assert cache.CACHE_BACKEND == "disk"
+    monkeypatch.setattr(cache, "CACHE_BACKEND", "disk")
     assert isinstance(cache.get_store(), cache.DiskStore)
     monkeypatch.setattr(cache, "CACHE_DIR", str(tmp_path))
     cache.save_to_disk("vid", CHUNKS, make_index())
@@ -184,6 +184,17 @@ def test_missing_redis_package_is_a_miss(monkeypatch):
     store = cache.RedisStore(url="redis://localhost:6379/0")
     assert store.load("k") is None
     store.save("k", CHUNKS, make_index())
+
+
+def test_unknown_backend_warns_and_uses_disk(monkeypatch, caplog):
+    monkeypatch.setattr(cache, "CACHE_BACKEND", "memcached")
+    monkeypatch.setattr(cache, "_warned_backends", set())
+    with caplog.at_level("WARNING", logger="cache"):
+        assert isinstance(cache.get_store(), cache.DiskStore)
+        cache.get_store()
+    warnings = [r for r in caplog.records if "Unknown CACHE_BACKEND" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "memcached" in warnings[0].getMessage()
 
 
 def test_redis_not_imported_with_default_backend(tmp_path, monkeypatch):

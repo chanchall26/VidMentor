@@ -119,10 +119,14 @@ class RedisStore:
 
 
 _redis_store = None
+_warned_backends = set()
 
 def get_store():
     """Return the store chosen by CACHE_BACKEND (disk unless set to redis)."""
     global _redis_store
+    if CACHE_BACKEND not in ("disk", "redis") and CACHE_BACKEND not in _warned_backends:
+        _warned_backends.add(CACHE_BACKEND)
+        logger.warning("Unknown CACHE_BACKEND %r, falling back to disk (use 'disk' or 'redis')", CACHE_BACKEND)
     if CACHE_BACKEND == "redis":
         if _redis_store is None:
             _redis_store = RedisStore()
