@@ -42,7 +42,7 @@ FastAPI backend
 | Extension | Chrome Manifest V3 (content script + service worker) |
 | Tests | pytest |
 
-**Chunking strategy:** fixed time-window chunking with overlap. Transcript segments are grouped into 40-second windows, and neighbouring windows overlap (`WINDOW_SEC` and `OVERLAP_SEC` in `config.py`), so a thought that crosses a chunk boundary is not lost. Each chunk is tagged with its start/end timestamp. This keeps chunks meaningful (a "complete thought") and lets retrieval be biased toward what's currently playing.
+**Chunking strategy:** fixed time-window chunking with overlap. Transcript segments are grouped into 40-second windows, and neighbouring windows overlap (`WINDOW_SEC` and `OVERLAP_SEC` in `config.py`), so a thought that crosses a chunk boundary is not lost. Each chunk is tagged with its start/end timestamp (the end includes the duration of the final segment, so the last chunk never gets a zero-length range). This keeps chunks meaningful (a "complete thought") and lets retrieval be biased toward what's currently playing.
 
 **Retrieval:** semantic similarity search via FAISS, re-ranked with a soft penalty for chunks far from the viewer's current timestamp, so answers stay relevant to where the user actually is in the video, not just wherever similar words appear.
 
@@ -56,7 +56,8 @@ FastAPI backend
 - Chat history is kept per session and video (one session id per browser profile), with a cap on messages per session and an LRU limit on stored sessions
 - Clickable timestamps in answers that jump the video to that exact moment
 - Per-video caching (memory + disk): the FAISS index plus the chunks stored as JSON. Cache keys include the embedding model and chunk settings, so changing them rebuilds the index
-- The video is pre-indexed when you open the chat panel, and the widget also works when you open a video from the YouTube home page
+- The video is pre-indexed when you open the chat panel, and if that background pre-indexing fails, your first question falls through to `/chat`, which builds the index on demand
+- The widget also works when you open a video from the YouTube home page (it is injected across YouTube's single-page navigation)
 - Dark mode for the chat widget
 - Friendly error messages for disabled/missing captions, invalid video IDs, empty transcripts, and API rate limits or timeouts
 - Multi-language transcript fallback (tries English/Hindi first, falls back to whatever is available)
@@ -232,6 +233,8 @@ If Redis is down, unreachable or returns a broken value, the backend logs a warn
 
 - **Transcript fetching can fail on cloud hosts.** YouTube blocks many cloud IPs (including Render's free tier), so the deployed backend may return "could not retrieve a transcript". It works from a normal home connection when you run the backend locally. A client-side transcript fetch would avoid this and is a good contribution.
 - **Embedding model and memory:** the default `all-MiniLM-L6-v2` is the lightweight option. For Hindi transcripts, `EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2` can be opted into via `.env`; it uses noticeably more RAM (about 445 MB for the Python process in one measurement on Windows), which is tight on Render's 512 MB free tier. Roman-script Hinglish was not tested.
+- **In-memory index cache is unbounded.** Only chat sessions have an LRU limit; the in-memory FAISS index cache has none yet (see [#42](../../issues/42)).
+- **Backend URL is hardcoded** in `background.js`. A settings page for it is planned (see [#8](../../issues/8) and [#40](../../issues/40)).
 - **Chat history is kept per session and video**, where a session is one id per browser profile (stored in `chrome.storage.local`), and it resets on restart.
 - **Old `.pkl` caches** from before the JSON change are ignored and rebuilt. They are not deleted.
 - **Free-tier hosting:** the server spins down after ~15 minutes of inactivity (first request after idle takes ~30-50s), and the disk is ephemeral, so cached indexes reset on redeploy/restart unless you set up a persistent `CACHE_DIR` or Redis (see Deployment).
@@ -240,8 +243,13 @@ If Redis is down, unreachable or returns a broken value, the backend logs a warn
 
 ## Roadmap
 
+- Move cache storage to Redis or a persistent volume (in review, see [#24](../../issues/24))
+- Client-side transcript fetching (avoids YouTube IP blocking, see [#10](../../issues/10))
+- Settings page for the backend URL
+- Real-time answer streaming via Server-Sent Events
+- Keyboard-accessible chat widget
+- Bounded LRU eviction for the in-memory index cache
 - Multilingual model optimization for low-memory cloud hosts
-- Client-side transcript fetching (avoids YouTube IP blocking)
 - Voice input for asking doubts
 - Auto-pause video when the chat panel opens
 
