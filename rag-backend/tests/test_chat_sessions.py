@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
 
+VALID_ID = "testvid1234"
+VALID_ID_2 = "testvid1235"
+
 
 @pytest.fixture(autouse=True)
 def client(monkeypatch):
@@ -19,7 +22,7 @@ def client(monkeypatch):
     main.chat_sessions.clear()
 
 
-def post(client, query, video_id="vid", session_id=None):
+def post(client, query, video_id=VALID_ID, session_id=None):
     body = {"video_id": video_id, "query": query}
     if session_id is not None:
         body["session_id"] = session_id
@@ -33,27 +36,27 @@ def test_sessions_on_the_same_video_keep_separate_history(client):
     post(client, "from a again", session_id="a")
     post(client, "from b", session_id="b")
 
-    assert len(main.chat_sessions[("a", "vid")]) == 4
-    assert len(main.chat_sessions[("b", "vid")]) == 2
-    assert main.chat_sessions[("b", "vid")][0]["content"] == "from b"
+    assert len(main.chat_sessions[("a", VALID_ID)]) == 4
+    assert len(main.chat_sessions[("b", VALID_ID)]) == 2
+    assert main.chat_sessions[("b", VALID_ID)][0]["content"] == "from b"
 
 
 def test_same_session_on_different_videos_is_separate(client):
-    post(client, "q1", video_id="v1", session_id="a")
-    post(client, "q2", video_id="v2", session_id="a")
-    assert set(main.chat_sessions) == {("a", "v1"), ("a", "v2")}
+    post(client, "q1", video_id=VALID_ID, session_id="a")
+    post(client, "q2", video_id=VALID_ID_2, session_id="a")
+    assert set(main.chat_sessions) == {("a", VALID_ID), ("a", VALID_ID_2)}
 
 
 def test_request_without_session_id_falls_back_to_video_id(client):
     post(client, "first")
     post(client, "second")
-    assert list(main.chat_sessions) == [("vid", "vid")]
-    assert len(main.chat_sessions[("vid", "vid")]) == 4
+    assert list(main.chat_sessions) == [(VALID_ID, VALID_ID)]
+    assert len(main.chat_sessions[(VALID_ID, VALID_ID)]) == 4
 
 
 def test_overlong_session_id_is_rejected(client):
     res = client.post(
-        "/chat", json={"video_id": "vid", "query": "q", "session_id": "x" * 65}
+        "/chat", json={"video_id": VALID_ID, "query": "q", "session_id": "x" * 65}
     )
     assert res.status_code == 422
     assert main.chat_sessions == {}

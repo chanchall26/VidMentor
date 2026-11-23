@@ -46,24 +46,42 @@ function removeWidget() {
   isSending = false;
 }
 
+function closeChatPanel() {
+  const panel = document.getElementById("yt-doubt-panel");
+  if (!panel?.classList.contains("yt-doubt-open")) return;
+
+  panel.classList.remove("yt-doubt-open");
+  panel.inert = true;
+  panel.setAttribute("aria-hidden", "true");
+  const button = document.getElementById("yt-doubt-button");
+  button?.setAttribute("aria-expanded", "false");
+  button?.focus();
+}
+
 function createChatWidget() {
   if (!document.body) return;
   if (location.pathname !== "/watch") return; // only on video pages
   if (document.getElementById("yt-doubt-button")) return;
 
-  const button = document.createElement("div");
+  const button = document.createElement("button");
   button.id = "yt-doubt-button";
+  button.type = "button";
+  button.setAttribute("aria-label", "Open VidMentor chat");
+  button.setAttribute("aria-controls", "yt-doubt-panel");
+  button.setAttribute("aria-expanded", "false");
   button.textContent = "❓ Ask Doubt";
   document.body.appendChild(button);
 
   const panel = document.createElement("div");
   panel.id = "yt-doubt-panel";
+  panel.inert = true;
+  panel.setAttribute("aria-hidden", "true");
   panel.innerHTML = `
     <div id="yt-doubt-header">
       <span>Ask about this video</span>
-      <span id="yt-doubt-close">✕</span>
+      <button id="yt-doubt-close" type="button" aria-label="Close chat">✕</button>
     </div>
-    <div id="yt-doubt-messages"></div>
+    <div id="yt-doubt-messages" role="log" aria-label="Chat messages" aria-live="polite"></div>
     <div id="yt-doubt-input-row">
       <input id="yt-doubt-input" type="text" placeholder="Type your doubt..." autocomplete="off" />
       <button id="yt-doubt-send">Send</button>
@@ -74,16 +92,20 @@ function createChatWidget() {
   addMessage("Hi! Ask me anything about this video and I'll answer using its transcript.", "bot");
 
   button.addEventListener("click", () => {
-    panel.classList.toggle("yt-doubt-open");
     if (panel.classList.contains("yt-doubt-open")) {
-      document.getElementById("yt-doubt-input")?.focus();
-      triggerIndexing();
+      closeChatPanel();
+      return;
     }
+
+    panel.classList.add("yt-doubt-open");
+    panel.inert = false;
+    panel.removeAttribute("aria-hidden");
+    button.setAttribute("aria-expanded", "true");
+    document.getElementById("yt-doubt-input")?.focus();
+    triggerIndexing();
   });
 
-  document.getElementById("yt-doubt-close").addEventListener("click", () => {
-    panel.classList.remove("yt-doubt-open");
-  });
+  document.getElementById("yt-doubt-close").addEventListener("click", closeChatPanel);
 
   const input = document.getElementById("yt-doubt-input");
   document.getElementById("yt-doubt-send").addEventListener("click", sendMessage);
@@ -91,6 +113,10 @@ function createChatWidget() {
   input.addEventListener("keydown", (e) => {
     // Stop YouTube shortcuts (space, k, f, m, etc.) from firing while typing
     e.stopPropagation();
+    if (e.key === "Escape") {
+      closeChatPanel();
+      return;
+    }
     if (e.key === "Enter" && !e.isComposing) {
       e.preventDefault();
       sendMessage();
@@ -103,7 +129,7 @@ function createChatWidget() {
 // Registered once (not on every widget re-creation)
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
-    document.getElementById("yt-doubt-panel")?.classList.remove("yt-doubt-open");
+    closeChatPanel();
   }
 });
 
@@ -177,7 +203,9 @@ function finishSending() {
   isSending = false;
   removeTypingIndicator();
   setInputEnabled(true);
-  document.getElementById("yt-doubt-input")?.focus();
+  if (document.getElementById("yt-doubt-panel")?.classList.contains("yt-doubt-open")) {
+    document.getElementById("yt-doubt-input")?.focus();
+  }
 }
 
 function sendMessage() {

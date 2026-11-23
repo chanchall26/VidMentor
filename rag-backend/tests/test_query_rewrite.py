@@ -139,7 +139,7 @@ def clean_chat_sessions():
 def test_chat_searches_with_the_rewrite_but_keeps_the_original(monkeypatch, clean_chat_sessions):
     chunks = [{"text": "Binary search runs in O(log n).", "start": 12, "end": 52}]
     monkeypatch.setattr(main, "get_or_build_index", lambda vid: ((chunks, object()), None))
-    main.chat_sessions[("vid_rw", "vid_rw")] = list(HISTORY)
+    main.chat_sessions[("vidrw123456", "vidrw123456")] = list(HISTORY)
 
     searched = {}
 
@@ -153,10 +153,10 @@ def test_chat_searches_with_the_rewrite_but_keeps_the_original(monkeypatch, clea
     monkeypatch.setattr(main, "call_groq_with_retry", lambda prompt: prompts.append(prompt) or "O(log n)")
 
     response = TestClient(main.app).post(
-        "/chat", json={"video_id": "vid_rw", "query": "what's its time complexity?", "current_time": 20.0}
+        "/chat", json={"video_id": "vidrw123456", "query": "what's its time complexity?", "current_time": 20.0}
     )
 
     assert response.status_code == 200
     assert searched["query"] == "What is the time complexity of binary search?"
     assert "Student's new question: what's its time complexity?" in prompts[0]
-    assert main.chat_sessions[("vid_rw", "vid_rw")][-2]["content"] == "what's its time complexity?"
+    assert main.chat_sessions[("vidrw123456", "vidrw123456")][-2]["content"] == "what's its time complexity?"

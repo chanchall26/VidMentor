@@ -16,6 +16,8 @@
 }
 
 #yt-doubt-button {
+  appearance: none;
+  border: 0;
   position: fixed;
   bottom: 24px;
   right: 24px;
@@ -43,6 +45,11 @@
 
 #yt-doubt-button:active {
   transform: translateY(0);
+}
+
+#yt-doubt-button:focus-visible {
+  outline: 3px solid var(--yt-doubt-link);
+  outline-offset: 3px;
 }
 
 /* FIX: display:flex is required so flex-direction and flex:1 on children work */
@@ -87,6 +94,12 @@
 }
 
 #yt-doubt-close {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-weight: inherit;
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -99,6 +112,11 @@
 #yt-doubt-close:hover {
   background: rgba(255,255,255,0.2);
   opacity: 1;
+}
+
+#yt-doubt-close:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
 }
 
 /* FIX: min-height:0 lets this flex child shrink so overflow-y can scroll */

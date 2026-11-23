@@ -1,7 +1,9 @@
 import os
 import json
 import logging
+import time
 import faiss
+import re
 import numpy as np
 from config import (
     CACHE_DIR, CACHE_BACKEND, REDIS_URL, CACHE_TTL_SEC,
@@ -13,13 +15,26 @@ logger = logging.getLogger(__name__)
 # Prefix for every Redis key, so VidMentor never touches other keys on a shared Redis.
 REDIS_KEY_PREFIX = "vidmentor:cache:v1:"
 
+# After a Redis failure, skip Redis for this many seconds so requests don't each wait on the timeout.
+REDIS_BACKOFF_SEC = 30
+
 if CACHE_BACKEND == "disk":
     os.makedirs(CACHE_DIR, exist_ok=True)
 
 # In-memory cache: cache_key -> (chunks, index)
 video_cache = {}
 
+# YouTube ID pattern: 11 characters from A-Z, a-z, 0-9, _, -
+VIDEO_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{11}")
+
+def _validate_video_id(video_id: str) -> str:
+    """Validate video_id format and reject path traversal attempts."""
+    if not VIDEO_ID_PATTERN.fullmatch(video_id):
+        raise ValueError("Invalid video_id format. Must be 11 characters from A-Z, a-z, 0-9, _, -")
+    return video_id
+
 def get_cache_key(video_id: str, model_name: str | None = None) -> str:
+    _validate_video_id(video_id)
     if model_name is None:
         model_name = EMBEDDING_MODEL
     safe_model = str(model_name).replace("/", "_").replace("\\", "_")
@@ -65,6 +80,13 @@ class RedisStore:
         self._client = client
         self._url = url if url is not None else REDIS_URL
         self.ttl = CACHE_TTL_SEC if ttl is None else ttl
+        self._down_until = 0.0
+
+    def _in_backoff(self):
+        return time.monotonic() < self._down_until
+
+    def _mark_down(self):
+        self._down_until = time.monotonic() + REDIS_BACKOFF_SEC
 
     def _get_client(self):
         if self._client is None:
@@ -83,6 +105,8 @@ class RedisStore:
         return f"{REDIS_KEY_PREFIX}{key}:index", f"{REDIS_KEY_PREFIX}{key}:chunks"
 
     def save(self, key, chunks, index):
+        if self._in_backoff():
+            return
         try:
             client = self._get_client()
             if client is None:
@@ -91,13 +115,18 @@ class RedisStore:
             index_bytes = faiss.serialize_index(index).tobytes()
             chunks_bytes = json.dumps(chunks, ensure_ascii=False).encode("utf-8")
             ex = self.ttl if self.ttl and self.ttl > 0 else None
-            # Chunks last: a reader that sees chunks also finds the index.
-            client.set(index_key, index_bytes, ex=ex)
-            client.set(chunks_key, chunks_bytes, ex=ex)
+            # One transaction so a reader never sees the chunks without the index.
+            pipe = client.pipeline(transaction=True)
+            pipe.set(index_key, index_bytes, ex=ex)
+            pipe.set(chunks_key, chunks_bytes, ex=ex)
+            pipe.execute()
         except Exception as e:
+            self._mark_down()
             logger.warning("Redis cache save failed for %s: %s", key, e)
 
     def load(self, key):
+        if self._in_backoff():
+            return None
         try:
             client = self._get_client()
             if client is None:
@@ -114,6 +143,7 @@ class RedisStore:
             index = faiss.deserialize_index(np.frombuffer(index_raw, dtype="uint8"))
             return chunks, index
         except Exception as e:
+            self._mark_down()
             logger.warning("Redis cache load failed for %s: %s", key, e)
             return None
 
