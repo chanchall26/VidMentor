@@ -127,6 +127,7 @@ class RedisStore:
     def load(self, key):
         if self._in_backoff():
             return None
+        # Only the Redis calls start the backoff. A bad entry is a miss for that video only.
         try:
             client = self._get_client()
             if client is None:
@@ -134,18 +135,22 @@ class RedisStore:
             index_key, chunks_key = self._keys(key)
             chunks_raw = client.get(chunks_key)
             index_raw = client.get(index_key)
-            if chunks_raw is None or index_raw is None:
-                return None
+        except Exception as e:
+            self._mark_down()
+            logger.warning("Redis cache load failed for %s: %s", key, e)
+            return None
+        if chunks_raw is None or index_raw is None:
+            return None
+        try:
             chunks = json.loads(chunks_raw)
             if not _valid_chunks(chunks):
                 logger.warning("Redis cache entry for %s has invalid chunks, ignoring", key)
                 return None
             index = faiss.deserialize_index(np.frombuffer(index_raw, dtype="uint8"))
-            return chunks, index
         except Exception as e:
-            self._mark_down()
-            logger.warning("Redis cache load failed for %s: %s", key, e)
+            logger.warning("Redis cache entry for %s is corrupt, ignoring: %s", key, e)
             return None
+        return chunks, index
 
 
 _redis_store = None

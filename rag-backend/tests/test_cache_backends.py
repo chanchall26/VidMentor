@@ -153,20 +153,22 @@ def test_redis_expired_entry_is_a_miss(monkeypatch):
 @pytest.mark.parametrize("bad_chunks", [b"not json{", b'{"a": 1}', b'[{"text": "no start"}]'])
 def test_redis_corrupt_chunks_is_a_miss(monkeypatch, bad_chunks):
     client = FakeRedis()
-    use_redis(monkeypatch, client)
+    store = use_redis(monkeypatch, client)
     cache.save_to_disk("vid00000000", CHUNKS, make_index())
     chunks_key = [k for k in client.data if k.endswith(":chunks")][0]
     client.data[chunks_key] = bad_chunks
     assert cache.load_from_disk("vid00000000") is None
+    assert store._in_backoff() is False
 
 
 def test_redis_corrupt_index_is_a_miss(monkeypatch):
     client = FakeRedis()
-    use_redis(monkeypatch, client)
+    store = use_redis(monkeypatch, client)
     cache.save_to_disk("vid00000000", CHUNKS, make_index())
     index_key = [k for k in client.data if k.endswith(":index")][0]
     client.data[index_key] = b"garbage bytes"
     assert cache.load_from_disk("vid00000000") is None
+    assert store._in_backoff() is False
 
 
 @pytest.mark.parametrize("missing", [":index", ":chunks"])
@@ -177,6 +179,18 @@ def test_redis_missing_half_is_a_miss(monkeypatch, missing):
     for k in [k for k in client.data if k.endswith(missing)]:
         del client.data[k]
     assert cache.load_from_disk("vid00000000") is None
+
+
+def test_redis_corrupt_entry_does_not_block_other_videos(monkeypatch):
+    client = FakeRedis()
+    store = use_redis(monkeypatch, client)
+    cache.save_to_disk("vid00000000", CHUNKS, make_index())
+    cache.save_to_disk("vid11111111", CHUNKS, make_index())
+    bad_key = [k for k in client.data if "vid00000000" in k and k.endswith(":chunks")][0]
+    client.data[bad_key] = b"not json{"
+    assert cache.load_from_disk("vid00000000") is None
+    assert store._in_backoff() is False
+    assert cache.load_from_disk("vid11111111")[0] == CHUNKS
 
 
 def test_redis_get_error_is_a_miss(monkeypatch):
